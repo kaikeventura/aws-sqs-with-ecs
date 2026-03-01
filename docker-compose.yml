@@ -16,12 +16,30 @@ services:
       localstack:
         condition: service_healthy
     environment:
+      - SPRING_PROFILES_ACTIVE=virtual
       - SQS_ENDPOINT=http://localstack:4566
       - QUEUE_URL=http://localstack:4566/000000000000/teste-fila
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_REGION=us-east-1
-    # Aqui é onde a mágica do teste acontece: simula uma Task do ECS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  worker-simple:
+    build: .
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - SPRING_PROFILES_ACTIVE=simple
+      - SQS_ENDPOINT=http://localstack:4566
+      - QUEUE_URL=http://localstack:4566/000000000000/teste-fila-2
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
     deploy:
       resources:
         limits:

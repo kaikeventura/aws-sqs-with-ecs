@@ -24,10 +24,10 @@ Este projeto implementa uma arquitetura de alta performance utilizando **Java 21
 *   Permissão de execução no script de inicialização: `chmod +x init-sqs.sh`
 
 ### 1. Subindo a Infraestrutura e Escalando Workers
-Inicie o LocalStack e escale os consumidores (workers) para processar a carga em paralelo. No exemplo abaixo, subimos 5 instâncias do worker:
+Inicie o LocalStack e escale os consumidores (workers) para processar a carga em paralelo. No exemplo abaixo, subimos 5 instâncias do worker otimizado (Virtual Threads):
 
 ```bash
-docker compose up -d --scale worker=5
+docker compose up -d worker --scale worker=5
 ```
 
 ### 2. Executando o Producer (Go)
@@ -58,6 +58,37 @@ Acompanhe em tempo real a taxa de processamento (mensagens por segundo) de todos
 
 ```bash
 watch -n 1 "docker compose ps -q worker | xargs -I {} docker logs --tail 1 {} | grep -o 'Throughput:.*'"
+```
+
+## Comparativo de Performance (Virtual Threads vs Platform Threads)
+
+Para validar os ganhos das Virtual Threads, o projeto inclui uma implementação "Simples" que utiliza um pool fixo de threads de plataforma (OS Threads), simulando uma aplicação Java tradicional.
+
+### 1. Subindo os Workers Tradicionais
+Suba uma instância separada dos workers que consomem da fila `teste-fila-2`:
+
+```bash
+docker compose up -d worker-simple --scale worker-simple=5
+```
+
+### 2. Gerando Carga para o Cenário Simples
+Execute o producer apontando para a fila `teste-fila-2`:
+
+```bash
+docker run --rm -it -v "$PWD/sqs-producer":/app -w /app --network host -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e QUEUE_NAME=teste-fila-2 golang:1.23-alpine go run main.go
+```
+
+### 3. Monitorando o Cenário Simples
+Monitore a profundidade da fila `teste-fila-2` e compare a velocidade de esvaziamento com o cenário otimizado:
+
+```bash
+watch -n 1 "aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes --queue-url http://localhost:4566/000000000000/teste-fila-2 --attribute-names ApproximateNumberOfMessages"
+```
+
+Monitore o throughput dos workers simples:
+
+```bash
+watch -n 1 "docker compose ps -q worker-simple | xargs -I {} docker logs --tail 1 {} | grep -o 'Throughput:.*'"
 ```
 
 ## Resultados Observados

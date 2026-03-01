@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -15,15 +16,22 @@ import (
 )
 
 const (
-	Region       = "us-east-1"
-	QueueURL     = "http://localhost:4566/000000000000/teste-fila"
-	Endpoint     = "http://localhost:4566"
-	TotalMsgs    = 100000 // Teste com 100k, aumente conforme necessário
-	BatchSize    = 10     // Limite do SQS
-	MaxWorkers   = 50     // Número de goroutines simultâneas
+	Region     = "us-east-1"
+	Endpoint   = "http://localhost:4566"
+	TotalMsgs  = 100000 // Teste com 100k, aumente conforme necessário
+	BatchSize  = 10     // Limite do SQS
+	MaxWorkers = 50     // Número de goroutines simultâneas
 )
 
 func main() {
+	// Configuração da fila via variável de ambiente
+	queueName := os.Getenv("QUEUE_NAME")
+	if queueName == "" {
+		queueName = "teste-fila"
+	}
+	// Constrói a URL da fila dinamicamente
+	queueURL := fmt.Sprintf("%s/000000000000/%s", Endpoint, queueName)
+
 	// Configuração do SDK apontando para o LocalStack
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
@@ -42,20 +50,25 @@ func main() {
 
 	client := sqs.NewFromConfig(cfg)
 
-	fmt.Printf("🚀 Iniciando bombardeio de %d mensagens...\n", TotalMsgs)
+	fmt.Printf("🚀 Iniciando bombardeio de %d mensagens na fila '%s'...\n", TotalMsgs, queueName)
+	fmt.Printf("🔗 URL da Fila: %s\n", queueURL)
+
 	start := time.Now()
 
 	var wg sync.WaitGroup
+	// Canal bufferizado para distribuir o trabalho
 	jobs := make(chan int, TotalMsgs/BatchSize)
 
 	// Subindo os workers (Goroutines)
 	for w := 1; w <= MaxWorkers; w++ {
 		wg.Add(1)
-		go worker(client, jobs, &wg)
+		go worker(client, jobs, &wg, queueURL)
 	}
 
 	// Enviando os batches para o canal
-	for j := 0; j < TotalMsgs/BatchSize; j++ {
+	// Cada job representa um batch de 10 mensagens
+	numBatches := TotalMsgs / BatchSize
+	for j := 0; j < numBatches; j++ {
 		jobs <- j
 	}
 	close(jobs)
@@ -70,7 +83,7 @@ func main() {
 	fmt.Printf("📈 Vazão: %.2f mensagens/segundo\n", throughput)
 }
 
-func worker(client *sqs.Client, jobs <-chan int, wg *sync.WaitGroup) {
+func worker(client *sqs.Client, jobs <-chan int, wg *sync.WaitGroup, queueURL string) {
 	defer wg.Done()
 	for range jobs {
 		var entries []types.SendMessageBatchRequestEntry
@@ -83,7 +96,7 @@ func worker(client *sqs.Client, jobs <-chan int, wg *sync.WaitGroup) {
 		}
 
 		_, err := client.SendMessageBatch(context.TODO(), &sqs.SendMessageBatchInput{
-			QueueUrl: aws.String(QueueURL),
+			QueueUrl: aws.String(queueURL),
 			Entries:  entries,
 		})
 		if err != nil {
