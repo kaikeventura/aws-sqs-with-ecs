@@ -1,0 +1,33 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack_sqs
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - "./init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh"
+
+  worker:
+    build: .
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - SQS_ENDPOINT=http://localstack:4566
+      - QUEUE_URL=http://localstack:4566/000000000000/teste-fila
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_REGION=us-east-1
+    # Aqui é onde a mágica do teste acontece: simula uma Task do ECS
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  default:
+    name: sqs_network
